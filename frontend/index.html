@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AgentDrop — Airdrops gated by Binance Agent ID</title>
+<style>
+  :root { color-scheme: dark; }
+  body { font-family: system-ui, sans-serif; background:#0b0e11; color:#eaecef; margin:0; padding:24px; }
+  .wrap { max-width: 760px; margin: 0 auto; }
+  h1 { color:#f0b90b; margin-bottom: 4px; }
+  .sub { color:#b7bdc6; margin-top:0; }
+  .card { background:#181a20; border:1px solid #2b3139; border-radius:12px; padding:16px; margin:14px 0; }
+  button { background:#f0b90b; color:#181a20; border:0; border-radius:8px; padding:10px 16px; font-weight:600; cursor:pointer; }
+  button:disabled { opacity:.45; cursor:not-allowed; }
+  input { background:#0b0e11; color:#eaecef; border:1px solid #2b3139; border-radius:8px; padding:10px; width:220px; }
+  .mono { font-family: ui-monospace, monospace; font-size: 13px; word-break: break-all; }
+  .ok { color:#0ecb81; } .bad { color:#f6465d; } .muted { color:#848e9c; }
+  a { color:#f0b90b; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>AgentDrop</h1>
+  <p class="sub">Sybil-resistant claim board for BNB Chain. Drops can only be claimed by wallets holding a
+  <b>Binance Agent ID</b> (.ai) — one claim per Agent ID, enforced on-chain.</p>
+
+  <div class="card">
+    <button id="connectBtn">Connect wallet</button>
+    <span id="account" class="mono muted">not connected</span>
+    <div id="identity" style="margin-top:12px"></div>
+    <div id="nameBox" style="margin-top:10px; display:none">
+      <label>Your Agent ID name: <input id="nameInput" placeholder="yourname"> .ai</label>
+      <button id="checkNameBtn">Verify</button>
+      <div id="nameResult" style="margin-top:8px"></div>
+    </div>
+  </div>
+
+  <h2>Active drops</h2>
+  <div id="drops"><p class="muted">Connect your wallet to load drops.</p></div>
+
+  <div class="card muted">
+    Contract: <span class="mono" id="contractAddr"></span><br>
+    Agent ID NFT (SPACE ID Agent ID): <span class="mono">0x60B9262456De011F7d15a54CdD8c48BAAA8b022F</span><br>
+    Network: BNB Smart Chain (chainId 56)
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/ethers@6.13.4/dist/ethers.umd.min.js"></script>
+<script>
+const AGENTDROP = "0xaF37d6b276B6423ac6AC491f3B56e197Dc386F10";
+const AGENT_ID_NFT = "0x60B9262456De011F7d15a54CdD8c48BAAA8b022F";
+const BSC_CHAIN_ID = 56n;
+
+const AGENTDROP_ABI = [
+  "function dropsCount() view returns (uint256)",
+  "function getDrop(uint256) view returns (tuple(address token, uint256 amountPerClaim, uint256 slotsTotal, uint256 slotsClaimed, uint256 deadline, bool closed))",
+  "function hasAgentId(address) view returns (bool)",
+  "function isEligible(uint256, uint256) view returns (bool)",
+  "function claim(uint256 dropId, uint256 agentTokenId)"
+];
+const NFT_ABI = [
+  "function balanceOf(address) view returns (uint256)",
+  "function ownerOf(uint256) view returns (address)"
+];
+
+let provider, signer, account, agentTokenId = null;
+
+document.getElementById("contractAddr").textContent = AGENTDROP;
+
+async function connect() {
+  if (!window.ethereum) { alert("No EVM wallet found. Open this page in a Web3 browser (e.g. Binance Wallet)."); return; }
+  provider = new ethers.BrowserProvider(window.ethereum);
+  const net = await provider.getNetwork();
+  if (net.chainId !== BSC_CHAIN_ID) {
+    await window.ethereum.request({ method: "wallet_switchEthereumChain", params: [{ chainId: "0x38" }] });
+    provider = new ethers.BrowserProvider(window.ethereum);
+  }
+  signer = await provider.getSigner();
+  account = await signer.getAddress();
+  document.getElementById("account").textContent = account;
+  await checkIdentity();
+  await loadDrops();
+}
+
+async function checkIdentity() {
+  const nft = new ethers.Contract(AGENT_ID_NFT, NFT_ABI, provider);
+  const bal = await nft.balanceOf(account);
+  const box = document.getElementById("identity");
+  if (bal > 0n) {
+    box.innerHTML = '<span class="ok">✔ This wallet holds a Binance Agent ID.</span> Enter your .ai name to unlock claiming.';
+    document.getElementById("nameBox").style.display = "block";
+  } else {
+    box.innerHTML = '<span class="bad">✘ This wallet holds no Agent ID.</span> Claim a free .ai name in the Binance Wallet app first.';
+  }
+}
+
+async function verifyName() {
+  const label = document.getElementById("nameInput").value.trim().toLowerCase();
+  const out = document.getElementById("nameResult");
+  if (!label) { out.textContent = "Enter your name (without .ai)."; return; }
+  const tokenId = BigInt(ethers.keccak256(ethers.toUtf8Bytes(label)));
+  const nft = new ethers.Contract(AGENT_ID_NFT, NFT_ABI, provider);
+  try {
+    const owner = await nft.ownerOf(tokenId);
+    if (owner.toLowerCase() === account.toLowerCase()) {
+      agentTokenId = tokenId;
+      out.innerHTML = '<span class="ok">✔ ' + label + '.ai verified as yours.</span> <span class="mono muted">tokenId ' + tokenId.toString() + '</span>';
+    } else {
+      agentTokenId = null;
+      out.innerHTML = '<span class="bad">✘ ' + label + '.ai belongs to a different wallet.</span>';
+    }
+  } catch (e) {
+    agentTokenId = null;
+    out.innerHTML = '<span class="bad">✘ ' + label + '.ai is not registered.</span>';
+  }
+  await loadDrops();
+}
+
+async function loadDrops() {
+  const board = new ethers.Contract(AGENTDROP, AGENTDROP_ABI, provider);
+  const count = await board.dropsCount();
+  const el = document.getElementById("drops");
+  if (count === 0n) { el.innerHTML = '<p class="muted">No drops yet.</p>'; return; }
+  el.innerHTML = "";
+  for (let i = 0n; i < count; i++) {
+    const d = await board.getDrop(i);
+    const isBNB = d.token === ethers.ZeroAddress;
+    const asset = isBNB ? "BNB" : ("ERC-20 " + d.token);
+    const amount = isBNB ? ethers.formatEther(d.amountPerClaim) : d.amountPerClaim.toString();
+    const left = d.slotsTotal - d.slotsClaimed;
+    const expired = BigInt(Math.floor(Date.now() / 1000)) > d.deadline;
+    let eligible = false;
+    if (agentTokenId !== null) { try { eligible = await board.isEligible(i, agentTokenId); } catch (e) {} }
+    const card = document.createElement("div");
+    card.className = "card";
+    card.innerHTML =
+      "<b>Drop #" + i.toString() + "</b> — " + amount + " " + asset + " per claim<br>" +
+      '<span class="muted">Slots: ' + d.slotsClaimed.toString() + " / " + d.slotsTotal.toString() +
+      " claimed · " + left.toString() + " left · ends " + new Date(Number(d.deadline) * 1000).toUTCString() + "</span><br>" +
+      (d.closed ? '<span class="bad">Closed</span>' : expired ? '<span class="bad">Expired</span>' : "");
+    const btn = document.createElement("button");
+    btn.textContent = eligible ? "Claim" : "Claim (verify your .ai name first)";
+    btn.disabled = !eligible;
+    btn.onclick = async () => {
+      btn.disabled = true; btn.textContent = "Claiming…";
+      try {
+        const tx = await new ethers.Contract(AGENTDROP, AGENTDROP_ABI, signer).claim(i, agentTokenId);
+        await tx.wait();
+        btn.textContent = "Claimed ✔";
+        await loadDrops();
+      } catch (e) {
+        btn.textContent = "Claim failed — try again";
+        btn.disabled = false;
+        alert("Claim failed: " + (e.shortMessage || e.message));
+      }
+    };
+    card.appendChild(document.createElement("br"));
+    card.appendChild(btn);
+    el.appendChild(card);
+  }
+}
+
+document.getElementById("connectBtn").onclick = connect;
+document.getElementById("checkNameBtn").onclick = verifyName;
+</script>
+</body>
+</html>
