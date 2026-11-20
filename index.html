@@ -1,0 +1,606 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AgentDrop — Airdrops gated by Binance Agent ID</title>
+<meta name="description" content="AgentDrop is a sybil-resistant claim board for BNB Chain. Drop #0: claim 0.00001 BNB — only for wallets holding a Binance Agent ID (.ai). 30 slots, ends 9 Dec 2026.">
+<meta name="theme-color" content="#0b0e11">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230b0e11'/%3E%3Cpath d='M32 8 L50 32 L32 56 L14 32 Z' fill='%23f0b90b'/%3E%3Cpath d='M32 20 L42 32 L32 44 L22 32 Z' fill='%230b0e11'/%3E%3C/svg%3E">
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #07090c;
+    --bg2: #0b0e11;
+    --panel: #14171d;
+    --panel2: #181c23;
+    --line: #262c36;
+    --line-soft: #1e232c;
+    --text: #eaecef;
+    --muted: #98a2ae;
+    --muted2: #848e9c;
+    --gold: #f0b90b;
+    --gold2: #ffd84d;
+    --gold-dim: rgba(240,185,11,.12);
+    --green: #0ecb81;
+    --red: #f6465d;
+    --ease: cubic-bezier(0.4, 0, 0.2, 1);
+    --ease-out: cubic-bezier(0.05, 0.7, 0.1, 1);
+    --r-lg: 18px;
+    --r-md: 14px;
+    --r-sm: 10px;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg2);
+    color: var(--text);
+    margin: 0;
+    padding: 0;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
+  }
+  /* Ambient layer: slow-breathing gold glow + faint grid */
+  body::before {
+    content: "";
+    position: fixed;
+    inset: -22%;
+    z-index: -2;
+    background:
+      radial-gradient(680px 420px at 85% 4%, rgba(240,185,11,.2), transparent 65%),
+      radial-gradient(560px 380px at 4% 30%, rgba(240,185,11,.1), transparent 60%),
+      radial-gradient(700px 300px at 50% -40px, rgba(240,185,11,.12), transparent 70%),
+      linear-gradient(180deg, #0d1015 0%, var(--bg) 380px);
+    animation: breathe 11s ease-in-out infinite alternate;
+  }
+  body::after {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    background-image:
+      linear-gradient(rgba(255,255,255,.025) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,.025) 1px, transparent 1px);
+    background-size: 44px 44px;
+    mask-image: radial-gradient(720px 420px at 50% 0, #000 30%, transparent 78%);
+    -webkit-mask-image: radial-gradient(720px 420px at 50% 0, #000 30%, transparent 78%);
+    pointer-events: none;
+  }
+  @keyframes breathe { from { opacity: .7; transform: translate3d(-1.5%, -1%, 0) scale(1); } to { opacity: 1; transform: translate3d(1.5%, 1.5%, 0) scale(1.05); } }
+
+  .wrap { max-width: 880px; margin: 0 auto; padding: 0 18px 56px; }
+
+  /* ---------- Top bar ---------- */
+  .topbar {
+    position: sticky; top: 0; z-index: 20;
+    backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+    background: rgba(9, 11, 14, .78);
+    border-bottom: 1px solid var(--line-soft);
+  }
+  .topbar-in { max-width: 880px; margin: 0 auto; padding: 12px 18px; display: flex; align-items: center; gap: 10px; }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 800; font-size: 18px; letter-spacing: .2px; color: var(--text); text-decoration: none; }
+  .brand svg { display: block; }
+  .brand .drop-word { color: var(--gold); }
+  .topbar .spacer { flex: 1; }
+  .net-pill {
+    font-size: 12px; font-weight: 600; color: var(--gold2);
+    border: 1px solid rgba(240,185,11,.35); background: var(--gold-dim);
+    padding: 5px 10px; border-radius: 999px; white-space: nowrap;
+  }
+  .top-contract { font-size: 12px; color: var(--muted); text-decoration: none; font-family: ui-monospace, monospace; }
+  .top-contract:hover { color: var(--gold2); }
+  @media (max-width: 560px) { .top-contract { display: none; } }
+
+  /* ---------- Entrance choreography (Premium: decelerate, staggered, <500ms total) ---------- */
+  @keyframes rise { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
+  .reveal { opacity: 0; animation: rise .55s var(--ease) forwards; animation-delay: var(--d, 0s); }
+
+  /* ---------- Hero ---------- */
+  .hero { text-align: center; padding: 46px 6px 8px; position: relative; }
+  .hero-glow {
+    position: absolute; left: 50%; top: 2px; width: 580px; height: 350px; max-width: 94vw;
+    background: radial-gradient(closest-side, rgba(240,185,11,.3), rgba(240,185,11,.09) 55%, transparent 75%);
+    filter: blur(26px); border-radius: 50%; z-index: -1; pointer-events: none;
+    animation: orbFloat 8s ease-in-out infinite alternate;
+  }
+  @keyframes orbFloat { from { transform: translateX(-54%) translateY(0) scale(1); opacity: .75; } to { transform: translateX(-46%) translateY(14px) scale(1.09); opacity: 1; } }
+  .live-pill {
+    display: inline-flex; align-items: center; gap: 8px;
+    font-size: 12.5px; font-weight: 700; letter-spacing: .6px; text-transform: uppercase;
+    color: var(--green); border: 1px solid rgba(14,203,129,.35); background: rgba(14,203,129,.08);
+    padding: 6px 13px; border-radius: 999px;
+  }
+  .live-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); animation: pulse 2s ease-in-out infinite; }
+  @keyframes pulse { 0%,100% { box-shadow: 0 0 0 0 rgba(14,203,129,.45); } 55% { box-shadow: 0 0 0 6px rgba(14,203,129,0); } }
+  h1 {
+    font-size: clamp(42px, 9vw, 64px); line-height: 1.04; margin: 18px 0 6px; font-weight: 850; letter-spacing: -1px;
+  }
+  h1 .gold-grad {
+    background: linear-gradient(92deg, var(--gold) 5%, var(--gold2) 45%, #fff3c4 55%, var(--gold) 95%);
+    background-size: 220% auto;
+    -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; color: transparent;
+    animation: goldShift 6s ease-in-out infinite alternate;
+  }
+  @keyframes goldShift { from { background-position: 0% center; } to { background-position: 100% center; } }
+  .tagline { font-size: clamp(17px, 3.6vw, 21px); color: var(--text); margin: 6px auto 4px; max-width: 620px; font-weight: 600; }
+  .sub { color: var(--muted); margin: 8px auto 0; max-width: 600px; font-size: 15.5px; }
+  .hero-cta { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; margin-top: 24px; }
+
+  /* ---------- Buttons ---------- */
+  button, .btn {
+    font: inherit; font-weight: 700; cursor: pointer; text-decoration: none;
+    border-radius: 12px; border: 0; display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+    transition: transform .15s var(--ease), box-shadow .25s var(--ease), background .25s var(--ease), opacity .2s var(--ease);
+  }
+  .btn-gold, button {
+    background: linear-gradient(180deg, var(--gold2), var(--gold));
+    color: #181a20; padding: 13px 22px; min-height: 52px;
+    box-shadow: 0 6px 22px rgba(240,185,11,.22);
+  }
+  .btn-gold:hover, button:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 10px 28px rgba(240,185,11,.3); }
+  .btn-gold:active, button:active:not(:disabled) { transform: scale(.98); }
+  button:disabled { opacity: .45; cursor: not-allowed; box-shadow: none; }
+  .btn-ghost {
+    background: transparent; color: var(--text); border: 1px solid var(--line);
+    padding: 13px 22px; min-height: 52px; box-shadow: none;
+  }
+  .btn-ghost:hover { border-color: rgba(240,185,11,.5); color: var(--gold2); transform: translateY(-1px); box-shadow: none; }
+
+  /* Signature CTA: pulsing gold halo + periodic shine sweep (transform/opacity only) */
+  .hero-cta .btn-gold { font-size: 17px; padding: 16px 32px; animation: goldPulse 2.8s var(--ease) infinite; }
+  #connectBtn { animation: goldPulse 3.4s var(--ease) infinite; }
+  @keyframes goldPulse {
+    0%, 100% { box-shadow: 0 6px 22px rgba(240,185,11,.25), 0 0 0 0 rgba(240,185,11,.32); }
+    50% { box-shadow: 0 10px 30px rgba(240,185,11,.35), 0 0 0 9px rgba(240,185,11,0); }
+  }
+  .btn-gold, button { position: relative; overflow: hidden; }
+  .btn-gold::after, button::after {
+    content: ""; position: absolute; top: 0; bottom: 0; left: 0; width: 45%;
+    background: linear-gradient(100deg, transparent, rgba(255,255,255,.35), transparent);
+    transform: translateX(-220%) skewX(-18deg);
+    animation: shine 5.2s var(--ease) infinite;
+    pointer-events: none;
+  }
+  @keyframes shine { 0% { transform: translateX(-220%) skewX(-18deg); } 22% { transform: translateX(340%) skewX(-18deg); } 100% { transform: translateX(340%) skewX(-18deg); } }
+
+  /* ---------- Cards & sections ---------- */
+  .card {
+    background: linear-gradient(180deg, var(--panel2), var(--panel));
+    border: 1px solid var(--line); border-radius: var(--r-lg);
+    padding: 20px; margin: 16px 0;
+    box-shadow: 0 12px 32px rgba(0,0,0,.32);
+  }
+  h2 { font-size: 22px; margin: 38px 0 6px; letter-spacing: -.3px; }
+  .h2-sub { color: var(--muted); margin: 0 0 6px; font-size: 14.5px; }
+
+  /* Countdown */
+  .countdown { display: flex; gap: 10px; justify-content: center; margin-top: 26px; flex-wrap: wrap; }
+  .cd-cell {
+    min-width: 72px; padding: 12px 8px 10px; text-align: center;
+    background: linear-gradient(180deg, var(--panel2), var(--panel));
+    border: 1px solid var(--line); border-radius: var(--r-md);
+  }
+  .cd-num { font-size: 26px; font-weight: 800; font-variant-numeric: tabular-nums; line-height: 1.1; }
+  .cd-lab { font-size: 11px; letter-spacing: 1.2px; text-transform: uppercase; color: var(--muted2); margin-top: 3px; }
+  .cd-note { text-align: center; color: var(--muted2); font-size: 13px; margin-top: 10px; }
+
+  /* Stats grid */
+  .stats { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin-top: 22px; }
+  @media (min-width: 720px) { .stats { grid-template-columns: repeat(4, 1fr); } }
+  .stat {
+    background: linear-gradient(180deg, var(--panel2), var(--panel));
+    border: 1px solid var(--line); border-radius: var(--r-md); padding: 16px 16px 14px;
+  }
+  .stat .lab { font-size: 11.5px; letter-spacing: 1px; text-transform: uppercase; color: var(--muted2); font-weight: 700; }
+  .stat .val { font-size: 24px; font-weight: 800; margin-top: 5px; font-variant-numeric: tabular-nums; }
+  .stat .val small { font-size: 14px; color: var(--muted); font-weight: 600; }
+  .stat .foot { font-size: 12.5px; color: var(--muted); margin-top: 2px; }
+  .gold-text { color: var(--gold); }
+  .progress { height: 8px; border-radius: 99px; background: #232833; margin-top: 12px; overflow: hidden; }
+  .progress > div {
+    height: 100%; width: 0%; border-radius: 99px;
+    background: linear-gradient(90deg, var(--gold), var(--gold2));
+    transition: width .9s var(--ease);
+    position: relative; overflow: hidden;
+  }
+  .progress > div::after {
+    content: ""; position: absolute; inset: 0;
+    background: linear-gradient(100deg, transparent 30%, rgba(255,255,255,.35) 50%, transparent 70%);
+    transform: translateX(-100%);
+    animation: barShine 3s linear infinite;
+  }
+  @keyframes barShine { to { transform: translateX(100%); } }
+  .stat, .step { transition: transform .3s var(--ease), border-color .3s var(--ease); }
+  .stat:hover, .step:hover { transform: translateY(-3px); border-color: rgba(240,185,11,.45); }
+
+  /* Claim card */
+  #claim .card { border-color: rgba(240,185,11,.28); }
+  #connectBtn { width: 100%; font-size: 16.5px; }
+  @media (min-width: 720px) { #connectBtn { width: auto; min-width: 240px; } }
+  #account { display: inline-block; margin-top: 12px; padding: 6px 10px; background: var(--bg2); border: 1px solid var(--line-soft); border-radius: 8px; }
+  #identity { font-size: 15px; }
+  #nameBox label { display: block; color: var(--muted); font-size: 14.5px; margin-bottom: 10px; }
+  .name-row { display: flex; gap: 10px; flex-wrap: wrap; align-items: stretch; }
+  .name-row input { flex: 1 1 200px; }
+  .name-row button { min-height: 48px; }
+  input {
+    background: var(--bg2); color: var(--text); border: 1px solid var(--line); border-radius: var(--r-sm);
+    padding: 12px 14px; font: inherit; min-height: 48px; outline: none;
+    transition: border-color .2s var(--ease), box-shadow .2s var(--ease);
+  }
+  input:focus { border-color: var(--gold); box-shadow: 0 0 0 3px var(--gold-dim); }
+  input::placeholder { color: #5e6672; }
+
+  /* Drops rendered by the claim script */
+  #drops .card { border-left: 3px solid var(--gold); }
+  #drops .card b { font-size: 17px; }
+  #drops button { margin-top: 6px; width: 100%; font-size: 16px; }
+  @media (min-width: 720px) { #drops button { width: auto; min-width: 260px; } }
+
+  /* How to claim */
+  .steps { display: grid; gap: 12px; margin-top: 14px; }
+  @media (min-width: 720px) { .steps { grid-template-columns: repeat(3, 1fr); } }
+  .step {
+    background: linear-gradient(180deg, var(--panel2), var(--panel));
+    border: 1px solid var(--line); border-radius: var(--r-md); padding: 18px;
+  }
+  .step .num {
+    width: 34px; height: 34px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+    background: var(--gold-dim); border: 1px solid rgba(240,185,11,.4); color: var(--gold2); font-weight: 800; margin-bottom: 10px;
+  }
+  .step h3 { margin: 0 0 6px; font-size: 16px; }
+  .step p { margin: 0; color: var(--muted); font-size: 14.5px; }
+
+  /* FAQ */
+  details {
+    background: linear-gradient(180deg, var(--panel2), var(--panel));
+    border: 1px solid var(--line); border-radius: var(--r-md); margin-top: 10px; overflow: hidden;
+  }
+  summary {
+    cursor: pointer; padding: 15px 18px; font-weight: 700; font-size: 15.5px; list-style: none;
+    display: flex; justify-content: space-between; align-items: center; gap: 12px;
+  }
+  summary::-webkit-details-marker { display: none; }
+  summary::after { content: "+"; color: var(--gold); font-size: 20px; font-weight: 600; transition: transform .25s var(--ease); }
+  details[open ] summary::after { transform: rotate(45deg); }
+  details .faq-body { padding: 0 18px 16px; color: var(--muted); font-size: 14.5px; }
+  details .faq-body p { margin: 0; }
+
+  /* Footer */
+  footer { margin-top: 44px; border-top: 1px solid var(--line-soft); padding-top: 22px; color: var(--muted); font-size: 13.5px; }
+  footer .f-row { margin: 6px 0; word-break: break-all; }
+  footer a { color: var(--gold); text-decoration: none; }
+  footer a:hover { text-decoration: underline; }
+  .f-links { display: flex; gap: 16px; flex-wrap: wrap; margin: 10px 0; font-weight: 600; }
+
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; word-break: break-all; }
+  .ok { color: var(--green); } .bad { color: var(--red); } .muted { color: var(--muted2); }
+  a { color: var(--gold); }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: .001s !important; transition-duration: .001s !important; }
+    html { scroll-behavior: auto; }
+    .reveal { opacity: 1; }
+  }
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar-in">
+    <a class="brand" href="#">
+      <svg width="26" height="26" viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="14" fill="#181a20"/><path d="M32 8 L50 32 L32 56 L14 32 Z" fill="#f0b90b"/><path d="M32 20 L42 32 L32 44 L22 32 Z" fill="#181a20"/></svg>
+      Agent<span class="drop-word">Drop</span>
+    </a>
+    <span class="spacer"></span>
+    <a class="top-contract" href="https://bscscan.com/address/0xaF37d6b276B6423ac6AC491f3B56e197Dc386F10" target="_blank" rel="noopener">0xaF37…6F10 ↗</a>
+    <span class="net-pill">BNB Chain</span>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <!-- ================= HERO ================= -->
+  <section class="hero">
+    <div class="hero-glow" aria-hidden="true"></div>
+    <span class="live-pill reveal" style="--d:.02s"><span class="live-dot"></span> Live · Drop #0</span>
+    <h1 class="reveal" style="--d:.08s">Agent<span class="gold-grad">Drop</span></h1>
+    <p class="tagline reveal" style="--d:.14s">Airdrops gated by Binance Agent ID.</p>
+    <p class="sub reveal" style="--d:.2s">Sybil-resistant claim board for BNB Chain. Drops can only be claimed by wallets holding a
+    <b>Binance Agent ID</b> (.ai) — one claim per Agent ID, enforced on-chain.</p>
+    <div class="hero-cta reveal" style="--d:.26s">
+      <a class="btn btn-gold" href="#claim">Claim your drop</a>
+      <a class="btn btn-ghost" href="#how">How it works</a>
+    </div>
+
+    <div class="countdown reveal" style="--d:.32s" role="timer" aria-label="Time left to claim Drop 0">
+      <div class="cd-cell"><div class="cd-num" id="cdD">–</div><div class="cd-lab">Days</div></div>
+      <div class="cd-cell"><div class="cd-num" id="cdH">–</div><div class="cd-lab">Hours</div></div>
+      <div class="cd-cell"><div class="cd-num" id="cdM">–</div><div class="cd-lab">Minutes</div></div>
+      <div class="cd-cell"><div class="cd-num" id="cdS">–</div><div class="cd-lab">Seconds</div></div>
+    </div>
+    <p class="cd-note reveal" style="--d:.36s" id="cdNote">Drop #0 ends 9 Dec 2026 · 15:00 WIB (08:00 UTC) — or when all slots are claimed.</p>
+
+    <div class="stats reveal" style="--d:.4s">
+      <div class="stat">
+        <div class="lab">Per claim</div>
+        <div class="val gold-text">0.00001 <small>BNB</small></div>
+        <div class="foot">Sent straight to your wallet</div>
+      </div>
+      <div class="stat">
+        <div class="lab">Claimed</div>
+        <div class="val"><span id="statClaimed">–</span><small> / 30</small></div>
+        <div class="progress"><div id="progFill"></div></div>
+      </div>
+      <div class="stat">
+        <div class="lab">Slots left</div>
+        <div class="val" id="statLeft">–</div>
+        <div class="foot">First come, first served</div>
+      </div>
+      <div class="stat">
+        <div class="lab">Deadline</div>
+        <div class="val" style="font-size:19px; padding-top:4px">9 Dec 2026</div>
+        <div class="foot">15:00 WIB · 08:00 UTC</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= CLAIM ================= -->
+  <section id="claim">
+    <h2>Claim Drop #0</h2>
+    <p class="h2-sub">Connect the wallet that holds your Agent ID, verify your .ai name, then claim.</p>
+    <div class="card">
+      <button id="connectBtn">Connect wallet</button>
+      <span id="account" class="mono muted">not connected</span>
+      <div id="identity" style="margin-top:12px"></div>
+      <div id="nameBox" style="margin-top:14px; display:none">
+        <label for="nameInput">Your Agent ID name</label>
+        <div class="name-row">
+          <input id="nameInput" placeholder="yourname">
+          <span style="align-self:center; color:var(--muted); font-weight:700">.ai</span>
+          <button id="checkNameBtn">Verify</button>
+        </div>
+        <div id="nameResult" style="margin-top:10px"></div>
+      </div>
+    </div>
+  </section>
+
+  <h2>Active drops</h2>
+  <div id="drops"><p class="muted">Connect your wallet to load drops.</p></div>
+
+  <!-- ================= HOW ================= -->
+  <section id="how">
+    <h2>How to claim</h2>
+    <p class="h2-sub">Three steps — most wallets finish in under a minute.</p>
+    <div class="steps">
+      <div class="step">
+        <div class="num">1</div>
+        <h3>Get an Agent ID</h3>
+        <p>Claim your free <b>.ai</b> name in the Binance Wallet app. That Agent ID NFT is your ticket — no ID, no claim.</p>
+      </div>
+      <div class="step">
+        <div class="num">2</div>
+        <h3>Connect &amp; verify</h3>
+        <p>Connect your wallet on BNB Chain and enter your .ai name. We check on-chain that the name belongs to your wallet.</p>
+      </div>
+      <div class="step">
+        <div class="num">3</div>
+        <h3>Claim on-chain</h3>
+        <p>Tap Claim and confirm in your wallet. 0.00001 BNB lands in your wallet — one claim per Agent ID, enforced by the contract.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= FAQ ================= -->
+  <section id="faq">
+    <h2>FAQ</h2>
+    <details>
+      <summary>What is a Binance Agent ID?</summary>
+      <div class="faq-body"><p>A Binance Agent ID is an identity NFT with a human-readable <b>.ai</b> name (issued via SPACE ID) that you can claim for free inside the Binance Wallet app. AgentDrop uses it as a sybil-resistant identity: one Agent ID, one claim.</p></div>
+    </details>
+    <details>
+      <summary>Who can claim Drop #0?</summary>
+      <div class="faq-body"><p>Any wallet on BNB Chain that holds a Binance Agent ID. Each Agent ID can claim once — the rule is enforced by the smart contract, not by this website.</p></div>
+    </details>
+    <details>
+      <summary>What do I receive, and what does it cost?</summary>
+      <div class="faq-body"><p>You receive <b>0.00001 BNB</b> per claim, sent to your wallet when your claim transaction confirms. There is no claim fee — you only pay the normal BNB Chain network gas for the transaction.</p></div>
+    </details>
+    <details>
+      <summary>When does Drop #0 end?</summary>
+      <div class="faq-body"><p>Drop #0 ends on <b>9 December 2026 at 15:00 WIB (08:00 UTC)</b>, or as soon as all 30 slots are claimed — whichever comes first.</p></div>
+    </details>
+    <details>
+      <summary>Is the contract verified?</summary>
+      <div class="faq-body"><p>Yes. The AgentDrop contract source is verified on Sourcify (exact match) and readable on BscScan, so anyone can audit exactly what a claim does before signing. Links are in the footer below.</p></div>
+    </details>
+  </section>
+
+  <!-- ================= FOOTER ================= -->
+  <footer>
+    <div class="f-row">Contract: <span class="mono" id="contractAddr"></span></div>
+    <div class="f-links">
+      <a href="https://bscscan.com/address/0xaF37d6b276B6423ac6AC491f3B56e197Dc386F10" target="_blank" rel="noopener">View on BscScan ↗</a>
+      <a href="https://sourcify.dev/#/lookup/0xaF37d6b276B6423ac6AC491f3B56e197Dc386F10" target="_blank" rel="noopener">Verify on Sourcify ↗</a>
+    </div>
+    <div class="f-row">Agent ID NFT (SPACE ID Agent ID): <span class="mono">0x60B9262456De011F7d15a54CdD8c48BAAA8b022F</span></div>
+    <div class="f-row">Network: BNB Smart Chain (chainId 56)</div>
+    <div class="f-row" style="margin-top:12px">Built for the Binance Agent ID Hackathon · © 2026 AgentDrop</div>
+  </footer>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/ethers@6.13.4/dist/ethers.umd.min.js"></script>
+<script>
+const AGENTDROP = "0xaF37d6b276B6423ac6AC491f3B56e197Dc386F10";
+const AGENT_ID_NFT = "0x60B9262456De011F7d15a54CdD8c48BAAA8b022F";
+const BSC_CHAIN_ID = 56n;
+
+const AGENTDROP_ABI = [
+  "function dropsCount() view returns (uint256)",
+  "function getDrop(uint256) view returns (tuple(address token, uint256 amountPerClaim, uint256 slotsTotal, uint256 slotsClaimed, uint256 deadline, bool closed))",
+  "function hasAgentId(address) view returns (bool)",
+  "function isEligible(uint256, uint256) view returns (bool)",
+  "function claim(uint256 dropId, uint256 agentTokenId)"
+];
+const NFT_ABI = [
+  "function balanceOf(address) view returns (uint256)",
+  "function ownerOf(uint256) view returns (address)"
+];
+
+let provider, signer, account, agentTokenId = null;
+
+document.getElementById("contractAddr").textContent = AGENTDROP;
+
+async function connect() {
+  if (!window.ethereum) { alert("No EVM wallet found. Open this page in a Web3 browser (e.g. Binance Wallet)."); return; }
+  provider = new ethers.BrowserProvider(window.ethereum);
+  const net = await provider.getNetwork();
+  if (net.chainId !== BSC_CHAIN_ID) {
+    await window.ethereum.request({ method: "wallet_switchEthereumChain", params: [{ chainId: "0x38" }] });
+    provider = new ethers.BrowserProvider(window.ethereum);
+  }
+  signer = await provider.getSigner();
+  account = await signer.getAddress();
+  document.getElementById("account").textContent = account;
+  await checkIdentity();
+  await loadDrops();
+}
+
+async function checkIdentity() {
+  const nft = new ethers.Contract(AGENT_ID_NFT, NFT_ABI, provider);
+  const bal = await nft.balanceOf(account);
+  const box = document.getElementById("identity");
+  if (bal > 0n) {
+    box.innerHTML = '<span class="ok">✔ This wallet holds a Binance Agent ID.</span> Enter your .ai name to unlock claiming.';
+    document.getElementById("nameBox").style.display = "block";
+  } else {
+    box.innerHTML = '<span class="bad">✘ This wallet holds no Agent ID.</span> Claim a free .ai name in the Binance Wallet app first.';
+  }
+}
+
+async function verifyName() {
+  const label = document.getElementById("nameInput").value.trim().toLowerCase();
+  const out = document.getElementById("nameResult");
+  if (!label) { out.textContent = "Enter your name (without .ai)."; return; }
+  const tokenId = BigInt(ethers.keccak256(ethers.toUtf8Bytes(label)));
+  const nft = new ethers.Contract(AGENT_ID_NFT, NFT_ABI, provider);
+  try {
+    const owner = await nft.ownerOf(tokenId);
+    if (owner.toLowerCase() === account.toLowerCase()) {
+      agentTokenId = tokenId;
+      out.innerHTML = '<span class="ok">✔ ' + label + '.ai verified as yours.</span> <span class="mono muted">tokenId ' + tokenId.toString() + '</span>';
+    } else {
+      agentTokenId = null;
+      out.innerHTML = '<span class="bad">✘ ' + label + '.ai belongs to a different wallet.</span>';
+    }
+  } catch (e) {
+    agentTokenId = null;
+    out.innerHTML = '<span class="bad">✘ ' + label + '.ai is not registered.</span>';
+  }
+  await loadDrops();
+}
+
+async function loadDrops() {
+  const board = new ethers.Contract(AGENTDROP, AGENTDROP_ABI, provider);
+  const count = await board.dropsCount();
+  const el = document.getElementById("drops");
+  if (count === 0n) { el.innerHTML = '<p class="muted">No drops yet.</p>'; return; }
+  el.innerHTML = "";
+  for (let i = 0n; i < count; i++) {
+    const d = await board.getDrop(i);
+    const isBNB = d.token === ethers.ZeroAddress;
+    const asset = isBNB ? "BNB" : ("ERC-20 " + d.token);
+    const amount = isBNB ? ethers.formatEther(d.amountPerClaim) : d.amountPerClaim.toString();
+    const left = d.slotsTotal - d.slotsClaimed;
+    const expired = BigInt(Math.floor(Date.now() / 1000)) > d.deadline;
+    let eligible = false;
+    if (agentTokenId !== null) { try { eligible = await board.isEligible(i, agentTokenId); } catch (e) {} }
+    const card = document.createElement("div");
+    card.className = "card";
+    card.innerHTML =
+      "<b>Drop #" + i.toString() + "</b> — " + amount + " " + asset + " per claim<br>" +
+      '<span class="muted">Slots: ' + d.slotsClaimed.toString() + " / " + d.slotsTotal.toString() +
+      " claimed · " + left.toString() + " left · ends " + new Date(Number(d.deadline) * 1000).toUTCString() + "</span><br>" +
+      (d.closed ? '<span class="bad">Closed</span>' : expired ? '<span class="bad">Expired</span>' : "");
+    const btn = document.createElement("button");
+    btn.textContent = eligible ? "Claim" : "Claim (verify your .ai name first)";
+    btn.disabled = !eligible;
+    btn.onclick = async () => {
+      btn.disabled = true; btn.textContent = "Claiming…";
+      try {
+        const tx = await new ethers.Contract(AGENTDROP, AGENTDROP_ABI, signer).claim(i, agentTokenId);
+        await tx.wait();
+        btn.textContent = "Claimed ✔";
+        await loadDrops();
+      } catch (e) {
+        btn.textContent = "Claim failed — try again";
+        btn.disabled = false;
+        alert("Claim failed: " + (e.shortMessage || e.message));
+      }
+    };
+    card.appendChild(document.createElement("br"));
+    card.appendChild(btn);
+    el.appendChild(card);
+  }
+}
+
+document.getElementById("connectBtn").onclick = connect;
+document.getElementById("checkNameBtn").onclick = verifyName;
+</script>
+
+<script>
+/* Read-only live status for the hero (display only — no wallet, no signing).
+   Reads Drop #0 straight from the contract so the numbers are never stale. */
+(function () {
+  var DEADLINE_FALLBACK = 1796803200; /* 9 Dec 2026 08:00 UTC, verified on-chain */
+  var deadline = DEADLINE_FALLBACK;
+  var RPCS = [
+    "https://bsc-dataseed.binance.org",
+    "https://bsc-dataseed1.defibit.io",
+    "https://bsc-dataseed1.ninicoin.io"
+  ];
+  function pad(n) { return (n < 10 ? "0" : "") + n; }
+  function tick() {
+    var diff = deadline - Math.floor(Date.now() / 1000);
+    if (diff <= 0) {
+      document.getElementById("cdD").textContent = "0";
+      document.getElementById("cdH").textContent = "00";
+      document.getElementById("cdM").textContent = "00";
+      document.getElementById("cdS").textContent = "00";
+      document.getElementById("cdNote").textContent = "Drop #0 has ended.";
+      return;
+    }
+    document.getElementById("cdD").textContent = Math.floor(diff / 86400);
+    document.getElementById("cdH").textContent = pad(Math.floor(diff % 86400 / 3600));
+    document.getElementById("cdM").textContent = pad(Math.floor(diff % 3600 / 60));
+    document.getElementById("cdS").textContent = pad(Math.floor(diff % 60));
+  }
+  tick();
+  setInterval(tick, 1000);
+
+  async function loadStatus(idx) {
+    try {
+      var rpc = new ethers.JsonRpcProvider(RPCS[idx]);
+      var board = new ethers.Contract(
+        "0xaF37d6b276B6423ac6AC491f3B56e197Dc386F10",
+        ["function getDrop(uint256) view returns (tuple(address token, uint256 amountPerClaim, uint256 slotsTotal, uint256 slotsClaimed, uint256 deadline, bool closed))"],
+        rpc
+      );
+      var d = await board.getDrop(0);
+      var claimed = Number(d.slotsClaimed), total = Number(d.slotsTotal);
+      deadline = Number(d.deadline);
+      document.getElementById("statClaimed").textContent = claimed;
+      document.getElementById("statLeft").textContent = total - claimed;
+      document.getElementById("progFill").style.width = (total > 0 ? (claimed / total) * 100 : 0) + "%";
+      tick();
+    } catch (e) {
+      if (idx + 1 < RPCS.length) { loadStatus(idx + 1); }
+    }
+  }
+  if (window.ethers) { loadStatus(0); }
+})();
+</script>
+</body>
+</html>
